@@ -10,6 +10,7 @@ from simons_array_python import sa_config
 from simons_array_python import sa_sql
 from simons_array_python import sa_pointing as sa_p
 from simons_array_python import sa_timestream_operators as sa_op
+from simons_array_python import sa_hwp 
 
 from simons_array_python import sa_toast_pipeline_tools as sa_tpt
 from toast.utils import memreport
@@ -36,6 +37,10 @@ args = parser.parse_args()
 comm = toast.Comm()
 
 sa_data = sa_ob.create_data_from_IDs(
+#     (22300892,8) #tau A
+#     (22300714, 11), #Moon
+    (22300755, 10), #Good encoder
+
 #     (22301174, 41),
 #     (22301174, 45),
 #     (22301174, 49),
@@ -82,16 +87,21 @@ sa_data = sa_ob.create_data_from_IDs(
 
 for obs in sa_data.obs:
 #     obs.detectors = ['13.13_135.150T','13.13_155.150T','13.13_155.150B']
-    obs.detectors = sa_tpt.get_dets_by_obsID(sa_ob.Observation((22300880, 42)), percentile=1.0)
+#     obs.detectors = ['13.13_113.90T'] #good moon detector
+#     obs.detectors = ['13.13_189.90B'] #good moon detector with mapping
+    obs.detectors = ['13.12_212.90B']
+#     obs.detectors = sa_tpt.get_dets_by_obsID(sa_ob.Observation((22300880, 42)), percentile=1.0)
     obs.load_metadata()
 
-sa_data.all_requested_dets = sa_tpt.gen_all_requested_detectors(sa_data)
+sa_data.all_requested_dets = sa_tpt.get_all_requested_detectors(sa_data)
+
 
 pi = sa_pi.InputLevel0CachedByObsID(
     all_detectors = obs.detectors,
-    n_per_cache = len(sa_data.all_requested_dets),
+    n_per_cache = 1,
+    readout_phase = 'I',
     load_slowdaq = False,
-    load_hwp = False,
+    load_hwp = True,
     load_dets = True, 
     load_g3 = True,
     load_gcp = True,
@@ -101,27 +111,67 @@ pi = sa_pi.InputLevel0CachedByObsID(
 )
 
 sa_operator_stack = sa_pf.OperatorComposite(
+    sa_hwp.HWPAngleCalculator(encoder_reference_angle=0),
 #     sa_pf.OperatorApplyCalibrationFromTOD(),
 #     sa_pf.OperatorCalculateCalibrationFromDB(),    
-#     sa_p.ComputeBoresightQuaternions(),
-#     sa_pf.OperatorTelescopeDataInterpolator(prefix='corrected_'),
-#     sa_pf.OperatorScanCorrector('raw_scan_flag', 'raw_el_pos', 'raw_antenna_time_mjd'),
-#     sa_pf.OperatorScanCorrector('raw_scan_flag', 'raw_az_pos', 'raw_antenna_time_mjd'),
+    sa_p.ComputeBoresightQuaternions(),
+    sa_pf.OperatorTelescopeDataInterpolator(prefix='corrected_'),
+    sa_pf.OperatorScanCorrector('raw_scan_flag', 'raw_el_pos', 'raw_antenna_time_mjd'),
+    sa_pf.OperatorScanCorrector('raw_scan_flag', 'raw_az_pos', 'raw_antenna_time_mjd'),
 #     sa_op.OperatorTODNaNFiller(eval_attr_name='tes_nans'),
     sa_pf.OperatorDataInitializer(pi),
 )
 sa_operator_stack.exec(sa_data) 
 
-memreport('after data loading')
+# def save_satod(sa_data):
+#     tod = sa_data.obs[0].tod_list[0]
+#     np.save('I', tod.read(obs.detectors[0]+'-I_0'))
+#     np.save('Q', np.real(tod.read(obs.detectors[0]+'-I_4')))
+#     np.save('U', np.imag(tod.read(obs.detectors[0]+'-I_4')))
+    
+# save_satod(sa_data)
+                                                                                
 # sa_tpt.apply_calibration_from_dqdb(sa_data)
 
-# data = sa_tpt.make_toast_data(args, comm, sa_data, sims_prefix=None)
-# sa_tpt.remove_suffix_from_detname(data, suffix='-I')
+# def save_tod(data):
+#     np.save('demod0', data.obs[0].tod_list[0].cache['13.12_212.90B-I_0'])
+#     np.save('demod4r', np.real(data.obs[0].tod_list[0].cache['13.12_212.90B-I_4']))
+#     np.save('demod4i', np.imag(data.obs[0].tod_list[0].cache['13.12_212.90B-I_4']))
+    
+# save_tod(sa_data)
 
-# tpt.expand_pointing(args, comm, data)
-# memreport('after expand pointing')
+
+                
+# sa_tpt.setup_hwp(sa_data)
+            
+data = sa_tpt.make_toast_data(args, comm, sa_data, sims_prefix=None)
+
+def save_tod(data):
+    tod = data.obs[0]['tod']
+    np.save('toast_demod0', tod.cache[f'data_demod0_{obs.detectors[0]}'])
+    np.save('toast_demod4r', tod.cache[f'data_demod4r_{obs.detectors[0]}'])
+    np.save('toast_demod4i', tod.cache[f'data_demod4i_{obs.detectors[0]}'])
+                               
+tpt.expand_pointing(args, comm, data)
+
+sa_hwp.HWPSignalFilter(demod_modes=[0, 4], decimate_factor=1, use_toast=True).exec(data)
+# sa_tpt.rotate_QU(data)
+
+# sa_tpt.setup_hwp(data)
+
+
 # tpt.apply_polyfilter(args, comm, data, 'data')
-# tpt.apply_mapmaker(args, comm, data, args.outpath, 'data', bin_only=True) 
+sa_tpt.remove_suffix_from_detname(data, suffix='-I')
+save_tod(data)
+
+sa_tpt.demodulate_other(data)
+tpt.apply_mapmaker(args, comm, data, 'toast_maps_demod', 'data', nnz=3, bin_only=True) 
+
+# tpt.apply_mapmaker(args, comm, data, 'maps_demod/I', 'demod0', nnz=1, bin_only=True) 
+# tpt.apply_mapmaker(args, comm, data, 'maps_demod/Q', 'demod4r', nnz=1, bin_only=True) 
+# tpt.apply_mapmaker(args, comm, data, 'maps_demod/U', 'demod4i', nnz=1, bin_only=True) 
+
+
 
 
 # mc_start = args.mc_start 
