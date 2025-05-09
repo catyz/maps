@@ -60,9 +60,9 @@ hits = []
 
 for folder in glob('./2bcoadded/*'):
     print(folder)
-    nws.append(hp.read_map(f'{folder}/data_telescope_all_time_all_noise_weighted.fits', field=None, dtype=np.float64, verbose=False))
-    invnpps.append(hp.read_map(f'{folder}/data_telescope_all_time_all_invnpp.fits', field=None, dtype=np.float64, verbose=False))
-    hits.append(hp.read_map(f'{folder}/data_telescope_all_time_all_hits.fits', dtype=np.float64, verbose=False))
+    nws.append(hp.read_map(f'{folder}/toast_telescope_all_time_all_noise_weighted.fits', field=None, dtype=np.float64, verbose=False))
+    invnpps.append(hp.read_map(f'{folder}/toast_telescope_all_time_all_invnpp.fits', field=None, dtype=np.float64, verbose=False))
+    hits.append(hp.read_map(f'{folder}/toast_telescope_all_time_all_hits.fits', dtype=np.float64, verbose=False))
 
 total_hits = np.sum(hits, axis=0)
 observed_pixels = np.where(total_hits!=0)[0]
@@ -72,5 +72,5 @@ coadded_invnpp = np.sum(invnpps, axis=0)
 coadded_npp = invert_cov(coadded_invnpp)
 coadded_binned = apply_cov(coadded_npp, coadded_noise_weighted)
 
-hp.write_map(f'{args.outdir}/coadded_map.fits', coadded_binned, overwrite=True, dtype=np.float64)
+hp.write_map(f'{args.outdir}/total_binned.fits', coadded_binned, overwrite=True, dtype=np.float64)
 hp.write_map(f'{args.outdir}/total_hits.fits', total_hits, overwrite=True, dtype=np.float64)
